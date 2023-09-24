@@ -1,55 +1,56 @@
 #!/usr/bin/env python3
 
-from flask import Flask, jsonify, request, make_response
-from flask_migrate import Migrate
-from flask_restful import Api, Resource
-
-from models import db, Plant
+from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///plants.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mydatabase.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.json.compact = False
 
-migrate = Migrate(app, db)
-db.init_app(app)
+db = SQLAlchemy(app)
 
-api = Api(app)
+class Task(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(255))
+    done = db.Column(db.Boolean, default=False)
 
-
-class Plants(Resource):
-
-    def get(self):
-        plants = [plant.to_dict() for plant in Plant.query.all()]
-        return make_response(jsonify(plants), 200)
-
-    def post(self):
-        data = request.get_json()
-
-        new_plant = Plant(
-            name=data['name'],
-            image=data['image'],
-            price=data['price'],
-        )
-
-        db.session.add(new_plant)
+@app.route('/tasks', methods=['GET', 'POST'])
+def tasks():
+    if request.method == 'GET':
+        tasks = Task.query.all()
+        task_list = [{'id': task.id, 'title': task.title, 'description': task.description, 'done': task.done} for task in tasks]
+        return jsonify(task_list)
+    
+    if request.method == 'POST':
+        data = request.json
+        title = data.get('title')
+        description = data.get('description')
+        new_task = Task(title=title, description=description)
+        db.session.add(new_task)
         db.session.commit()
+        return jsonify({'message': 'Task created successfully'}), 201
 
-        return make_response(new_plant.to_dict(), 201)
+@app.route('/tasks/<int:id>', methods=['GET', 'PUT', 'DELETE'])
+def task(id):
+    task = Task.query.get_or_404(id)
 
-
-api.add_resource(Plants, '/plants')
-
-
-class PlantByID(Resource):
-
-    def get(self, id):
-        plant = Plant.query.filter_by(id=id).first().to_dict()
-        return make_response(jsonify(plant), 200)
-
-
-api.add_resource(PlantByID, '/plants/<int:id>')
-
+    if request.method == 'GET':
+        return jsonify({'id': task.id, 'title': task.title, 'description': task.description, 'done': task.done})
+    
+    if request.method == 'PUT':
+        data = request.json
+        task.title = data.get('title', task.title)
+        task.description = data.get('description', task.description)
+        task.done = data.get('done', task.done)
+        db.session.commit()
+        return jsonify({'message': 'Task updated successfully'})
+    
+    if request.method == 'DELETE':
+        db.session.delete(task)
+        db.session.commit()
+        return jsonify({'message': 'Task deleted successfully'})
 
 if __name__ == '__main__':
-    app.run(port=5555, debug=True)
+    db.create_all()
+    app.run(debug=True)
